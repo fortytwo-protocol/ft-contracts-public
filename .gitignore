@@ -1,0 +1,21 @@
+# Foundry files
+cache/
+out/
+broadcast/
+
+# Docs
+docs/
+
+# Dotenv file
+.env*
+!.env.example
+
+.vscode/
+.idea/
+
+/coverage
+/coverage.json
+lcov.info
+.gas-snapshot
+
+.DS_Store

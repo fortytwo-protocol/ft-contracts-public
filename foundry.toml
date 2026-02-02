@@ -1,0 +1,36 @@
+[profile.default]
+src = "src"
+out = "out"
+test = "test"
+script = "script"
+libs = ["lib"]
+via_ir = false
+optimizer = true
+optimizer_runs = 1_000_000
+memory_limit = 1073741824 # 1gb
+ffi = true
+fs_permissions = [
+    { access = "read", path = "./test/data" },
+    { access = "read-write", path = "./deployments" },
+]
+gas_reports = ["FTMarket", "FTRouter", "FTMarketController"]
+
+[lint]
+ignore = ["lib/**/*", "test/**/*"]
+
+[rpc_endpoints]
+bnb = "${RPC_BNB}"
+
+[etherscan]
+bnb = { key = "${ETHERSCAN_API_KEY}" }
+
+[profile.default.fuzz]
+runs = 1024
+
+[profile.pr.fuzz]
+runs = 8192
+
+[profile.ci.fuzz]
+runs = 16384
+
+# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
