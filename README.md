@@ -3,10 +3,10 @@
 This repository contains the core smart contracts for [FortyTwo](https://42.space). An onchain, curve-agnostic platform for event outcomes that prices via bonding curves and settles parimutuelly.
 
 ## Deployed Contracts
-FortyTwo is deployed on Bscscan. All deployed contracts can be found in the [`deployments`](https://) directory.
+FortyTwo is deployed on Bscscan. All deployed contracts can be found in the [`deployments`](/deployments) directory.
 
 ## Audits
-FortyTwo has been audited by 3 auditors. Audit reports are available in the [`audits`](https://) directory
+FortyTwo has been audited by 3 auditors. Audit reports are available in the [`audits`](/audits) directory
 
 ## Usage
 

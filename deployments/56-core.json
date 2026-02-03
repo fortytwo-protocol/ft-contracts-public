@@ -1,0 +1,20 @@
+{
+    "network": {
+        "chainId": 56,
+        "treasury": "0xc60E3415648684b1D0D0D97e85CB21E6a2bCb620"
+    },
+    "FTMarketController": "0xF21b2D4F8989b27f732e369907F25f0E8D95Fe62",
+    "FTLens": "0x3D01843463e7777c71bf66d2C471D7Cd7505101a",
+    "PowerCurve": {
+        "addy": "0x0443E04e70E4285a6cA73eacaC5267f3B4cBb7Da",
+        "c1": 750000000000000000,
+        "c2": "2000000000000000000000000",
+        "growthC1": 56700000000000000,
+        "growthC2": 1590000000000000000,
+        "start": 8888888888888888888,
+        "tick": 10000000000000000,
+        "timeExponent": 5000000000000000000,
+        "timeKink": 500000000000000000
+    },
+    "FTRouter": "0x88888888338e60bfB4657187169cFFa5c8640E42"
+}
