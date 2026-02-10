@@ -78,7 +78,7 @@ interface HasFTEvents {
         address indexed caller,
         address indexed receiver,
         uint256 indexed tokenId,
-        uint256 collateralToPool,
+        uint256 collateralFromUser,
         uint256 otToUser,
         uint256 collateralToTreasury
     );
