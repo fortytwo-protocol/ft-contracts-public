@@ -29,6 +29,28 @@ interface IFTCurve {
         returns (uint256 collateralToUser, uint256 collateralToTreasury);
 
     /**
+     * @notice calculate cost of OTs given OTs to seed. Cost refers to the total amount of collateral required. Term comes from Robin Hanson's paper on Market Scoring Rules(AMM)
+     * the curve is agnostic to whether fees are charged and if OTs are given back to the seeder or to treasury.
+     * @notice this function is called only for seed. Non-seed transactions do not use this.
+     * seeding is different from minting as it is used to initialise the market, thus it is crucial for:
+     * - setting up an initial "rate" for multi-dimensional bonding curves (i.e LMSR, AMMs) whereby invariants affect each other
+     * - bypassing user-facing special mechanics (i.e mint premiums)
+     * - seed at a fixed price without quotations (i.e RFQ or an external oracle)
+     * - creating a curve where no OTs are minted and only collateral is donated (use dataSwap with otDeltas of 0)
+     * @return collateralsFromUser amount of collaterals required from user
+     * @return collateralsToTreasury fee of seed, given to treasury
+     * @dev the curve can still implement the exact same formulas as mints, and it is not required to offer a preferntial quote
+     * @dev may contain state-modifying calls, note the lack of `view` modifier
+     * @dev guessing from collaterals is not provided due to possibility of onchain reverts with multiple swaps
+     */
+    function calSeedCostByOtDeltas(
+        address market,
+        uint256[] calldata tokenIds,
+        uint256[] calldata otDeltas,
+        bytes calldata dataSwap
+    ) external returns (uint256[] memory collateralsFromUser, uint256[] memory collateralsToTreasury);
+
+    /**
      * @notice approximate amount of OT to mint given collateral to spend. Cost refers to the total amount of collateral required. Term comes from Robin Hanson's paper on Market Scoring Rules(AMM)
      * @return otDelta best approximated amount of OT to mint
      * @return collateralFromUser expected amount of collateral required from user, PLEASE read DbC below.
@@ -65,6 +87,18 @@ interface IFTCurve {
      * @dev You are STRONGLY recommended to rely on `cal` functions instead of rawdogging everything using `simCost`.
      */
     function simMarginalPrice(uint256 otSupply) external view returns (uint256 price);
+
+    /**
+     * @notice Exposes the curve's underlying seed logic, so that it is possible to estimate costs without a market
+     * @return collateralFromUserTotal total amount of collateral required, given in collateral decimals
+     * @return collateralToTreasuryTotal total amount of fees to treasury, given in collateral decimals
+     * @dev Interface's Design by Contract(DbC) MUST be followed: Given to other factors between simSeed and seed,
+     * collateralFromUserTotal must be sum of collateralsFromUser in calSeedCostByOtDeltas. collateralToTreasuryTotal must be sum of collateralsToTreasury in calSeedCostByOtDeltas.
+     */
+    function simSeed(uint256[] calldata tokenIds, uint256[] calldata otDeltas, uint8 collateralDecimals, uint80 feeRate)
+        external
+        view
+        returns (uint256 collateralFromUserTotal, uint256 collateralToTreasuryTotal);
 
     /**
      * @notice There are a lot of factors involved in the curve, so this is a rather inaccurate function that attempts to "approximately" value an OT.

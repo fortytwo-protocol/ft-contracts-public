@@ -55,6 +55,11 @@ library FTMath {
         y = uint256(x);
     }
 
+    function toUint96(uint256 x) internal pure returns (uint96 y) {
+        y = uint96(x);
+        if (x != y) revert SafeCastOverflow();
+    }
+
     /// @dev forked from uniswap V4 but without custom reverts
     function toUint128(uint256 x) internal pure returns (uint128 y) {
         y = uint128(x);

@@ -1,16 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.0;
 
-import {QuestionParams, QuestionState} from "@ft/lib/Question.sol";
-
 interface IRegistry {
-    function getQuestionId(QuestionParams memory question) external view returns (bytes32 questionId);
-
-    function getQuestion(bytes32 questionId)
-        external
-        view
-        returns (QuestionState memory question, QuestionParams memory params);
-
     function isFinalised(bytes32 questionId) external view returns (bool finalised);
 
     function getOutcomeAnswer(bytes32 questionId) external view returns (uint256 answer);
