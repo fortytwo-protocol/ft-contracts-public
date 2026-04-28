@@ -22,6 +22,10 @@ struct IntegratorParams {
     uint256 integratorFeeBps;
 }
 
+/**
+ * @notice No function calls that can "bypass" approvals or have an origin as input should exist here.
+ * These include transferfrom() or transfer() external functions. The contract itself acts as a whitelist of accepted functions to multicall.
+ */
 contract FTRouterV2 is Initializable, ReentrancyGuardTransient, TokenHelper, HasFTEvents {
     uint256 public constant MAXIMUM_INTEGRATOR_FEE_BPS = 1000; // 10%
 
