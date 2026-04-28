@@ -20,7 +20,6 @@ contract ClockCurve is IFTCurve {
         uint256 feeRate;
         uint256 otCurrent;
         uint256 timePassed;
-        // TODO: tick?
     }
 
     uint256 private immutable start;
@@ -186,10 +185,26 @@ contract ClockCurve is IFTCurve {
     }
 
     /// @inheritdoc IFTCurve
+    /// @dev time premium exists, thus do not rely on this as market cap is path-dependent
+    function simCost(address market, uint256 tokenId, uint256 otSupply) external view returns (uint256 cost) {
+        ClockMath.CurveParams memory curve = readCurve();
+        MarketState memory state = readMarketState(market, tokenId);
+        return curve.calCost(otSupply, state.timePassed);
+    }
+
+    /// @inheritdoc IFTCurve
     /// @dev price has 0 time premium here, also do not rely on this as price is path-dependent
     function simMarginalPrice(uint256 otSupply) external view returns (uint256 price) {
         ClockMath.CurveParams memory curve = readCurve();
         return curve.calMarginalPrice(otSupply, 0);
+    }
+
+    /// @inheritdoc IFTCurve
+    /// @dev time premium exists, thus do not rely on this as price is path-dependent
+    function simMarginalPrice(address market, uint256 tokenId, uint256 otSupply) external view returns (uint256 price) {
+        ClockMath.CurveParams memory curve = readCurve();
+        MarketState memory state = readMarketState(market, tokenId);
+        return curve.calMarginalPrice(otSupply, state.timePassed);
     }
 
     /// @inheritdoc IFTCurve

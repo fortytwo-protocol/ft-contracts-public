@@ -51,7 +51,7 @@ contract PowerLDACurve is IFTCurve {
         uint256 _growthC1,
         uint256 _growthC2,
         uint256 _tick,
-        uint256 _premiumMax,
+        uint256 _phiDeltaMax,
         uint256 _windowFixed
     ) {
         C1 = _c1;
@@ -68,7 +68,7 @@ contract PowerLDACurve is IFTCurve {
 
         TICK = _tick;
 
-        PHI_DELTA_MAX = _premiumMax;
+        PHI_DELTA_MAX = _phiDeltaMax;
         WINDOW_STATIC = _windowFixed;
     }
 
@@ -237,9 +237,26 @@ contract PowerLDACurve is IFTCurve {
     }
 
     /// @inheritdoc IFTCurve
+    /// @dev lda premium exists, thus do not rely on this as market cap is path-dependent
+    function simCost(address market, uint256 tokenId, uint256 otSupply) external view returns (uint256 cost) {
+        if (otSupply == 0) return 0;
+        PowerMath.CurveParams memory curve = readCurve();
+        MarketState memory state = readMarketState(market, tokenId);
+        (cost,) = PowerLDAMint.calSwap(curve, state.premium, 0, 0, otSupply);
+    }
+
+    /// @inheritdoc IFTCurve
     function simMarginalPrice(uint256 otSupply) external view returns (uint256 price) {
         PowerMath.CurveParams memory curve = readCurve();
         return curve.calMarginalPrice(otSupply);
+    }
+
+    /// @inheritdoc IFTCurve
+    /// @dev lda premium exists, thus when market is still in lda window it returns a marginal price with lda
+    function simMarginalPrice(address market, uint256 tokenId, uint256 otSupply) external view returns (uint256 price) {
+        PowerMath.CurveParams memory curve = readCurve();
+        MarketState memory state = readMarketState(market, tokenId);
+        return PowerLDAMint.calMarginalPrice(curve, state.premium, otSupply);
     }
 
     /// @inheritdoc IFTCurve

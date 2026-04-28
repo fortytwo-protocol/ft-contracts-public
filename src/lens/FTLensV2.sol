@@ -566,7 +566,7 @@ contract FTLensV2 {
         snap.tokenId = tokenId;
         snap.supply = supply;
         snap.totalMarketCap = totalMarketCap;
-        snap.price = _calMarginalPrice(curve, market, supply);
+        snap.price = _calMarginalPrice(curve, market, tokenId, supply);
         snap.payoutPerOt = _calPayoutPerOt(market, tokenId, totalMarketCap, supply);
     }
 
@@ -581,7 +581,7 @@ contract FTLensV2 {
         snap.tokenId = tokenId;
         snap.supply = supply;
         snap.totalMarketCap = totalMarketCap;
-        snap.price = _calMarginalPrice(curve, market, supply);
+        snap.price = _calMarginalPrice(curve, market, tokenId, supply);
         snap.payoutPerOt = _calPayoutPerOt(market, tokenId, totalMarketCap, supply);
         snap.otHolding = holding;
         snap.payoutUser = _calPayoutUser(totalMarketCap, holding, supply);
@@ -698,12 +698,17 @@ contract FTLensV2 {
         if (idx >= numOutcomes) revert LensInvalidTokenId(tokenId);
     }
 
-    function _calMarginalPrice(IFTCurve curve, address market, uint256 supply)
+    function _calMarginalPrice(IFTCurve curve, address market, uint256 tokenId, uint256 supply)
         internal
         view
         returns (uint256 priceScaled)
     {
-        uint256 priceRaw = curve.simMarginalPrice(supply);
+        uint256 priceRaw;
+        try curve.simMarginalPrice(market, tokenId, supply) returns (uint256 p) {
+            priceRaw = p;
+        } catch {
+            priceRaw = curve.simMarginalPrice(supply); // note: need to be backward compatible with old curves
+        }
         uint8 collateralDecimals = IFTMarketV2(market).collateralDecimals();
         priceScaled = priceRaw.fullMulDiv(10 ** collateralDecimals, FTMath.FT_ONE);
     }

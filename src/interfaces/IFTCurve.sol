@@ -82,11 +82,25 @@ interface IFTCurve {
     function simCost(uint256 otSupply) external view returns (uint256 cost);
 
     /**
+     * @notice Exposes the curve's underlying cost function
+     * @notice Does not return in collateral decimal precision as this is market-agnostic, refer to the curve library for decimals
+     * @dev You are STRONGLY recommended to rely on `cal` functions instead of rawdogging everything using `simCost`.
+     */
+    function simCost(address market, uint256 tokenId, uint256 otSupply) external view returns (uint256 cost);
+
+    /**
      * @notice Exposes the curve's underlying marginal price function
      * @notice Does not return in collateral decimal precision as this is market-agnostic, refer to the curve library for decimals
      * @dev You are STRONGLY recommended to rely on `cal` functions instead of rawdogging everything using `simCost`.
      */
     function simMarginalPrice(uint256 otSupply) external view returns (uint256 price);
+
+    /**
+     * @notice Exposes the curve's underlying marginal price function
+     * @notice Does not return in collateral decimal precision as this is market-agnostic, refer to the curve library for decimals
+     * @dev You are STRONGLY recommended to rely on `cal` functions instead of rawdogging everything using `simCost`.
+     */
+    function simMarginalPrice(address market, uint256 tokenId, uint256 otSupply) external view returns (uint256 price);
 
     /**
      * @notice Exposes the curve's underlying seed logic, so that it is possible to estimate costs without a market

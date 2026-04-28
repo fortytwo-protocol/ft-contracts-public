@@ -217,7 +217,35 @@ contract PowerCurve is IFTCurve {
     }
 
     /// @inheritdoc IFTCurve
+    function simCost(
+        address, /*market*/
+        uint256, /*tokenId*/
+        uint256 otSupply
+    )
+        external
+        view
+        returns (uint256 cost)
+    {
+        PowerMath.CurveParams memory curve = readCurve();
+        return curve.calCost(otSupply);
+    }
+
+    /// @inheritdoc IFTCurve
     function simMarginalPrice(uint256 otSupply) external view returns (uint256 price) {
+        PowerMath.CurveParams memory curve = readCurve();
+        return curve.calMarginalPrice(otSupply);
+    }
+
+    /// @inheritdoc IFTCurve
+    function simMarginalPrice(
+        address, /*market*/
+        uint256, /*tokenId*/
+        uint256 otSupply
+    )
+        external
+        view
+        returns (uint256 price)
+    {
         PowerMath.CurveParams memory curve = readCurve();
         return curve.calMarginalPrice(otSupply);
     }
