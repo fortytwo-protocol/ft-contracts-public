@@ -7,9 +7,14 @@ library Errors {
     error FactoryInvalidSeedAmount();
     error FactoryUnsuccessfulMarketDeployment();
     error FactoryFeeRateExceedMaximumLimit();
+    error FactoryCurveNotAllowed();
+    error FactorySeedCostMismatch();
+    error FactorySeedCallFailed();
+    error FactoryNativeTokenNotAllowed();
 
     error CurveInvalidCost(uint256 quantity);
     error CurveOtDeltaNotOnTick(uint256 otDelta, uint256 tick);
+    error CurveInvalidStartEnd();
 
     error RegistryInsufficientOutcomesGiven();
     error RegistryExceedMaxNames();
@@ -33,6 +38,7 @@ library Errors {
     error RegistryInvalidTokenIdAsCollateral();
     error RegistryTokenIdNotCreatedForMarket();
     error RegistryInvalidTreasuryAddress();
+    error RegistryExceedMaxAncillaryDataUpdateLength();
 
     error GuessInvalidDataLength(uint256 len, uint256 required);
     error GuessMinGreaterThanMax(uint256 guessMin, uint256 guessMax);
@@ -63,10 +69,63 @@ library Errors {
     error MarketReceiverIsMarket();
     error MarketZeroAddress();
 
+    error MarketNoTokenIdsToSeed();
+
     error RouterUnauthorized();
     error RouterDbCViolated();
     error RouterSlippage();
     error RouterUnsupportedSelector();
     error RouterArrayLengthsMismatch();
     error RouterNotClaimableYet();
+    error RouterIntegratorFeeTooHigh();
+    error RouterInvalidIntegrator();
+    error RouterInvalidMarket();
+    error RouterInvalidSwapAmount();
+
+    error RegistryUnauthorized();
+    error RegistryFeeRateTooHigh();
+    error RegistryQuestionNotFound();
+    error RegistryQuestionAlreadyExists();
+    error RegistryQuestionAlreadyFinalised();
+    error RegistryQuestionNotResolved();
+    error RegistryInvalidNumOutcomes();
+    error RegistryInvalidTimestamp();
+    error RegistrySeedTooLow();
+    error RegistryCurveNotAllowed();
+    error RegistryMarketDeploymentFailed();
+    error RegistryCollateralNotWhitelisted();
+    error RegistryPaused();
+    error RegistryInvalidOracleAddress();
+    error RegistryOnlyCreator();
+    error RegistryOnlyOracle();
+    error RegistryOnlyCreatorOrOracleOrAdmin();
+    error RegistrySeedBelowMinimum();
+    error RegistryManualFinaliseTooEarly();
+    error RegistryAlreadyFlagged();
+    error RegistryNotFlagged();
+    error RegistryOutcomeImagesMismatch();
+    error RegistryMarketNotFound();
+    error RegistryMinSeedCannotBeZero();
+    error RegistryInvalidCurve();
+    error RegistryOutcomeLengthMismatch();
+    error RegistryQuestionIsFlagged();
+
+    error AdaptorInvalidQuestion();
+    error AdaptorSeedCostExceedsBudget();
+
+    error MarketInsufficientSeedCollateral();
+
+    error Safe6909TransferFailed();
+
+    error RouterStaticCallFailed();
+
+    error DRegistryQuestionNotResolved();
+    error DRegistryQuestionAlreadyFinalised();
+    error DRegistryLimitIsZero();
+    error DRegistryInvalidQuestion();
+
+    error AdaptorMarketDoesNotMatchQuestionId();
+    error AdaptorOtAmountsDoesNotMatch();
+
+    // TODO: cleanup
 }

@@ -98,10 +98,19 @@ library RedeemMath {
         uint256 growthC1,
         uint256 growthC2
     ) internal pure returns (RedeemParams memory) {
-        uint256 timeFromStartToEnd = timestampEnd - timestampStart;
-        uint256 timeFromStartToRedeem = 0;
-        if (timestampStart < timestampCurrent) {
-            timeFromStartToRedeem = timestampCurrent - timestampStart;
+        uint256 timeFromStartToEnd;
+        uint256 timeFromStartToRedeem;
+        if (timestampEnd <= timestampStart) {
+            timeFromStartToEnd = 1;
+            timeFromStartToRedeem = 1;
+        } else {
+            timeFromStartToEnd = timestampEnd - timestampStart;
+            if (timestampStart < timestampCurrent) {
+                timeFromStartToRedeem = timestampCurrent - timestampStart;
+                if (timeFromStartToRedeem > timeFromStartToEnd) {
+                    timeFromStartToRedeem = timeFromStartToEnd; // clamp to 100% to avoid reverts
+                }
+            }
         }
 
         return RedeemParams({

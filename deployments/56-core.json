@@ -4,17 +4,61 @@
         "treasury": "0xc60E3415648684b1D0D0D97e85CB21E6a2bCb620"
     },
     "FTMarketController": "0xF21b2D4F8989b27f732e369907F25f0E8D95Fe62",
+    "FTRouter": "0x88888888338e60bfB4657187169cFFa5c8640E42",
     "FTLens": "0x9a9846037238599b10f60a59C2607a8c3159E827",
-    "PowerCurve": {
-        "addy": "0x0443E04e70E4285a6cA73eacaC5267f3B4cBb7Da",
-        "c1": 750000000000000000,
-        "c2": "2000000000000000000000000",
-        "growthC1": 56700000000000000,
-        "growthC2": 1590000000000000000,
-        "start": 8888888888888888888,
-        "tick": 10000000000000000,
-        "timeExponent": 5000000000000000000,
-        "timeKink": 500000000000000000
-    },
-    "FTRouter": "0x88888888338e60bfB4657187169cFFa5c8640E42"
+    "PowerCurveLegacy": [
+        {
+            "addy": "0x0443E04e70E4285a6cA73eacaC5267f3B4cBb7Da",
+            "c1": 750000000000000000,
+            "c2": "2000000000000000000000000",
+            "growthC1": 56700000000000000,
+            "growthC2": 1590000000000000000,
+            "start": 8888888888888888888,
+            "tick": 10000000000000000,
+            "timeExponent": 5000000000000000000,
+            "timeKink": 500000000000000000
+        }
+    ],
+    "PowerCurve": [
+        {
+            "addy": "0xDC26047458FEa8Bd45164217CCb7eE90b9bE10B8",
+            "c1": 750000000000000000,
+            "c2": "2000000000000000000000000",
+            "growthC1": 56700000000000000,
+            "growthC2": 1590000000000000000,
+            "start": 8888888888888888888,
+            "tick": 10000000000000000,
+            "timeExponent": 5000000000000000000,
+            "timeKink": 500000000000000000
+        }
+    ],
+    "ClockCurve": [
+        {
+            "addy": "0x495B31876c092c236d1b0Df5Cc953D45d41301F1",
+            "kink": 0,
+            "start": 1000000000000000000,
+            "timePremiumMax": 250000000000,
+            "timePremiumMin": 100000000000
+        }
+    ],
+    "PowerLDACurve": [
+        {
+            "addy": "0xa59096C20022a9ec5d7691E0DcDc7D46776b1b3d",
+            "c1": 750000000000000000,
+            "c2": "2000000000000000000000000",
+            "growthC1": 56700000000000000,
+            "growthC2": 1590000000000000000,
+            "phiDeltaMax": 9000000000000000000,
+            "start": 8888888888888888888,
+            "tick": 10000000000000000,
+            "timeExponent": 5000000000000000000,
+            "timeKink": 500000000000000000,
+            "windowFixed": 60
+        }
+    ],
+    "FTControllerProxy": "0x8Fe93361D2B8b9519C4d20d47a319288Feec9072",
+    "FTRouterProxy": "0x888888886619275d33c00D3BC62DF94D700DCD42",
+    "FTAdaptor": "0x21d157C3bBb14808D2C9141e992a94b1d215F261",
+    "FTDisputeRegistry": "0x1bac7B699879383C35945B5A1b3E794D9829B7e3",
+    "FTLensV2": "0x4AAd5A856941FB64df10362024e3Ece24023d4d1"
 }

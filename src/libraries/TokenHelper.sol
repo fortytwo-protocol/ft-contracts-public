@@ -114,11 +114,11 @@ abstract contract TokenHelper {
 
     function _safeTransfer6909(address parent, address to, uint256 id, uint256 amount) internal {
         (bool success, bytes memory data) = parent.call(abi.encodeCall(IERC6909.transfer, (to, id, amount)));
-        require(success && (data.length == 0 || abi.decode(data, (bool))), "Safe6909Transfer failed");
+        require(success && (data.length == 0 || abi.decode(data, (bool))), Errors.Safe6909TransferFailed());
     }
 
     function _safeTransferFrom6909(address parent, address from, address to, uint256 id, uint256 amount) internal {
         (bool success, bytes memory data) = parent.call(abi.encodeCall(IERC6909.transferFrom, (from, to, id, amount)));
-        require(success && (data.length == 0 || abi.decode(data, (bool))), "Safe6909Transfer failed");
+        require(success && (data.length == 0 || abi.decode(data, (bool))), Errors.Safe6909TransferFailed());
     }
 }
