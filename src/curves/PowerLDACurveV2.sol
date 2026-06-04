@@ -3,25 +3,26 @@ pragma solidity ^0.8.20;
 
 import {IFTCurve} from "@ft/src/interfaces/IFTCurve.sol";
 import {IRegistry} from "@ft/src/interfaces/IRegistry.sol";
-import {PowerMath, PowerMint, PowerRedeem} from "@ft/src/curves/math/PowerMath.sol";
+import {PowerMath, PowerMint} from "@ft/src/curves/math/PowerMath.sol";
 import {PowerLDAMint} from "@ft/src/curves/math/PowerLDAMath.sol";
 import {LDAMath} from "@ft/src/curves/math/LDAMath.sol";
 import {FTMath} from "@ft/lib/FTMath.sol";
-import {RedeemMath} from "@ft/lib/RedeemMath.sol";
 import {Errors} from "@ft/lib/Errors.sol";
 import {Decoder} from "@ft/lib/Decoder.sol";
 import {GuessParam} from "@ft/src/curves/CurveBase.sol";
 import {FixedPointMathLib} from "@solady/utils/FixedPointMathLib.sol";
 import {IERC6909TokenSupply} from "@openzeppelin/contracts/interfaces/IERC6909.sol";
 import {IFTMarket} from "@ft/src/interfaces/IFTMarket.sol";
+import {PowerRedeemV2} from "@ft/src/curves/math/PowerMathV2.sol";
+import {RedeemMathV2} from "@ft/lib/RedeemMathV2.sol";
 
-contract PowerLDACurve is IFTCurve {
+contract PowerLDACurveV2 is IFTCurve {
     using PowerMath for PowerMath.CurveParams;
     using FixedPointMathLib for uint256;
     using FTMath for uint256;
 
     struct MarketState {
-        RedeemMath.RedeemParams redeem;
+        RedeemMathV2.RedeemParams redeem;
         LDAMath.LDAPremiumParams premium;
         uint256 feeRate;
         uint256 otCurrent;
@@ -32,10 +33,14 @@ contract PowerLDACurve is IFTCurve {
     uint256 public immutable C1;
     uint256 public immutable C2;
     uint256 public immutable START;
-    uint256 public immutable TIME_KINK;
-    uint256 public immutable TIME_EXPONENT;
-    uint256 public immutable GROWTH_C1;
-    uint256 public immutable GROWTH_C2;
+
+    // Redeem
+    uint256 public immutable TIME_KINK_START;
+    uint256 public immutable TIME_KINK_END;
+    uint256 public immutable RATE_BASE_MIN;
+    uint256 public immutable RATE_BASE_MAX;
+    uint256 public immutable LS_ROOT;
+
     uint256 public immutable TICK;
 
     // LDA
@@ -46,10 +51,11 @@ contract PowerLDACurve is IFTCurve {
         uint256 _c1,
         uint256 _c2,
         uint256 _start,
-        uint256 _timeKink,
-        uint256 _timeExponent,
-        uint256 _growthC1,
-        uint256 _growthC2,
+        uint256 _timeKinkStart,
+        uint256 _timeKinkEnd,
+        uint256 _rateBaseMin,
+        uint256 _rateBaseMax,
+        uint256 _lsRoot,
         uint256 _tick,
         uint256 _phiDeltaMax,
         uint256 _windowFixed
@@ -61,10 +67,12 @@ contract PowerLDACurve is IFTCurve {
         PowerMath.CurveParams memory curve = readCurve();
         if (!curve.isValid()) revert Errors.CurveInvalidCost(START);
 
-        TIME_KINK = _timeKink;
-        TIME_EXPONENT = _timeExponent;
-        GROWTH_C1 = _growthC1;
-        GROWTH_C2 = _growthC2;
+        if (_timeKinkEnd <= _timeKinkStart) revert Errors.CurveInvalidStartEnd();
+        TIME_KINK_START = _timeKinkStart;
+        TIME_KINK_END = _timeKinkEnd;
+        RATE_BASE_MIN = _rateBaseMin;
+        RATE_BASE_MAX = _rateBaseMax;
+        LS_ROOT = _lsRoot;
 
         TICK = _tick;
 
@@ -102,12 +110,11 @@ contract PowerLDACurve is IFTCurve {
             PowerLDAMint.calSwap(curve, state.premium, state.feeRate, state.otCurrent, otDelta);
 
         uint256 collateralDecimals = IFTMarket(market).collateralDecimals();
-        collateralFromUser = collateralFromUser.fullMulDivUp(10 ** collateralDecimals, FTMath.FT_ONE); // effective buy price is higher
+        collateralFromUser = collateralFromUser.fullMulDivUp(10 ** collateralDecimals, FTMath.FT_ONE);
         collateralToTreasury = collateralToTreasury.fullMulDiv(10 ** collateralDecimals, FTMath.FT_ONE);
     }
 
     /// @inheritdoc IFTCurve
-    /// @dev same as PowerCurve.sol
     function calRedeemValueByOtDelta(
         address market,
         uint256 tokenId,
@@ -123,10 +130,10 @@ contract PowerLDACurve is IFTCurve {
         if (otDelta % state.tick != 0) revert Errors.CurveOtDeltaNotOnTick(otDelta, state.tick);
 
         (collateralToUser, collateralToTreasury) =
-            PowerRedeem.calSwap(curve, state.redeem, state.feeRate, state.otCurrent, otDelta);
+            PowerRedeemV2.calSwap(curve, state.redeem, state.feeRate, state.otCurrent, otDelta);
 
         uint256 collateralDecimals = IFTMarket(market).collateralDecimals();
-        collateralToUser = collateralToUser.fullMulDiv(10 ** collateralDecimals, FTMath.FT_ONE); // effective sell price is lower
+        collateralToUser = collateralToUser.fullMulDiv(10 ** collateralDecimals, FTMath.FT_ONE);
         collateralToTreasury = collateralToTreasury.fullMulDiv(10 ** collateralDecimals, FTMath.FT_ONE);
     }
 
@@ -156,7 +163,7 @@ contract PowerLDACurve is IFTCurve {
             // seed bypasses LDA premium
             (uint256 collateralFromUser, uint256 collateralToTreasury) =
                 PowerMint.calSwap(curve, state.feeRate, state.otCurrent, otDelta);
-            collateralsFromUser[i] = collateralFromUser.fullMulDivUp(10 ** collateralDecimals, FTMath.FT_ONE); // effective buy price is higher
+            collateralsFromUser[i] = collateralFromUser.fullMulDivUp(10 ** collateralDecimals, FTMath.FT_ONE);
             collateralsToTreasury[i] = collateralToTreasury.fullMulDiv(10 ** collateralDecimals, FTMath.FT_ONE);
         }
     }
@@ -185,7 +192,6 @@ contract PowerLDACurve is IFTCurve {
     }
 
     /// @inheritdoc IFTCurve
-    /// @dev same as PowerCurve.sol
     function calOtDeltaByRedeemValue(address market, uint256 tokenId, uint256 collateralDelta, bytes calldata data)
         external
         view
@@ -202,18 +208,18 @@ contract PowerLDACurve is IFTCurve {
         uint256 collateralDecimals = IFTMarket(market).collateralDecimals();
         uint256 collateralDeltaScaled = collateralDelta.fullMulDiv(FTMath.FT_ONE, 10 ** collateralDecimals);
 
-        (otDelta, collateralToUser) = PowerRedeem.guessOtDelta(
+        (otDelta, collateralToUser) = PowerRedeemV2.guessOtDelta(
             curve, state.redeem, state.feeRate, guess, collateralDeltaScaled, state.otCurrent, state.tick
         );
         collateralToUser = collateralToUser.fullMulDiv(10 ** collateralDecimals, FTMath.FT_ONE);
     }
 
-    /// @notice Read immutable curve params
+    /// @notice Read immutable curve params.
     function readCurve() public view returns (PowerMath.CurveParams memory curve) {
         curve = PowerMath.CurveParams({c1: C1, c2: C2, start: START});
     }
 
-    /// @notice Read state of market required for calculations, including LDA premium
+    /// @notice Read state of market required for calculations, including LDA premium.
     function readMarketState(address market, uint256 tokenId) public view returns (MarketState memory state) {
         address registry = IFTMarket(market).registry();
         (, uint256 feeRate,, uint128 timestampEnd,,) = IRegistry(registry).getConfig(market);
@@ -221,8 +227,15 @@ contract PowerLDACurve is IFTCurve {
         uint256 otCurrent = IERC6909TokenSupply(market).totalSupply(tokenId);
         uint128 timestampStart = IFTMarket(market).timestampStart();
 
-        RedeemMath.RedeemParams memory redeem = RedeemMath.newRedeemParams(
-            timestampStart, timestampEnd, block.timestamp.toUint128(), TIME_KINK, TIME_EXPONENT, GROWTH_C1, GROWTH_C2
+        RedeemMathV2.RedeemParams memory redeem = RedeemMathV2.newRedeemParams(
+            timestampStart,
+            timestampEnd,
+            block.timestamp.toUint128(),
+            TIME_KINK_START,
+            TIME_KINK_END,
+            RATE_BASE_MIN,
+            RATE_BASE_MAX,
+            LS_ROOT
         );
         LDAMath.LDAPremiumParams memory premium =
             LDAMath.newPremiumParams(PHI_DELTA_MAX, WINDOW_STATIC, timestampStart, timestampEnd, block.timestamp);
@@ -237,7 +250,6 @@ contract PowerLDACurve is IFTCurve {
     }
 
     /// @inheritdoc IFTCurve
-    /// @dev lda premium exists, thus do not rely on this as market cap is path-dependent
     function simCost(address market, uint256 tokenId, uint256 otSupply) external view returns (uint256 cost) {
         if (otSupply == 0) return 0;
         PowerMath.CurveParams memory curve = readCurve();
@@ -252,7 +264,6 @@ contract PowerLDACurve is IFTCurve {
     }
 
     /// @inheritdoc IFTCurve
-    /// @dev lda premium exists, thus when market is still in lda window it returns a marginal price with lda
     function simMarginalPrice(address market, uint256 tokenId, uint256 otSupply) external view returns (uint256 price) {
         PowerMath.CurveParams memory curve = readCurve();
         MarketState memory state = readMarketState(market, tokenId);
@@ -279,7 +290,7 @@ contract PowerLDACurve is IFTCurve {
 
     /// @inheritdoc IFTCurve
     /// @dev DO NOT RELY ON THIS FOR ONCHAIN LOGIC
-    /// @dev same as PowerCurve.sol
+    /// @dev same as PowerCurveSimplified.sol
     function extrapolateRedeemForOffchainOnly(address market, uint256 tokenId, uint256 otFrom, uint256 otDelta)
         external
         view
@@ -289,10 +300,10 @@ contract PowerLDACurve is IFTCurve {
         MarketState memory state = readMarketState(market, tokenId);
 
         (collateralToUser, collateralToTreasury) =
-            PowerRedeem.calSwap(curve, state.redeem, state.feeRate, otFrom, otDelta);
+            PowerRedeemV2.calSwap(curve, state.redeem, state.feeRate, otFrom, otDelta);
 
         uint256 collateralDecimals = IFTMarket(market).collateralDecimals();
-        collateralToUser = collateralToUser.fullMulDiv(10 ** collateralDecimals, FTMath.FT_ONE); // effective sell price is lower
+        collateralToUser = collateralToUser.fullMulDiv(10 ** collateralDecimals, FTMath.FT_ONE);
         collateralToTreasury = collateralToTreasury.fullMulDiv(10 ** collateralDecimals, FTMath.FT_ONE);
     }
 
@@ -310,7 +321,6 @@ contract PowerLDACurve is IFTCurve {
         for (uint256 i = 0; i < len; ++i) {
             if (otDeltas[i] == 0) continue;
 
-            // market is not created: ot supply starts at 0 & no LDA premium
             (uint256 collateralFromUser, uint256 collateralToTreasury) =
                 PowerMint.calSwap(curve, feeRate, 0, otDeltas[i]);
             collateralFromUserTotal += collateralFromUser.fullMulDivUp(collateralScale, FTMath.FT_ONE);
@@ -319,6 +329,6 @@ contract PowerLDACurve is IFTCurve {
     }
 
     function timeKink() external view returns (uint256) {
-        return TIME_KINK;
+        return TIME_KINK_START;
     }
 }

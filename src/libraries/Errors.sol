@@ -15,6 +15,7 @@ library Errors {
     error CurveInvalidCost(uint256 quantity);
     error CurveOtDeltaNotOnTick(uint256 otDelta, uint256 tick);
     error CurveInvalidStartEnd();
+    error CurveInvalidParams();
 
     error RegistryInsufficientOutcomesGiven();
     error RegistryExceedMaxNames();

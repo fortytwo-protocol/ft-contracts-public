@@ -78,4 +78,16 @@ library FTMath {
             y := x
         }
     }
+
+    function to128Uint96(uint128 x) internal pure returns (uint96 y) {
+        y = uint96(x);
+        if (x != y) revert SafeCastOverflow();
+    }
+
+    /// @dev this is just uint128(uint96(x)), which will always pass. We use this so that the compiler will yell at us if we edit the type of x
+    function to96Uint128(uint96 x) internal pure returns (uint128 y) {
+        assembly ("memory-safe") {
+            y := x
+        }
+    }
 }
