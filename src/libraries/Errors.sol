@@ -128,5 +128,14 @@ library Errors {
     error AdaptorMarketDoesNotMatchQuestionId();
     error AdaptorOtAmountsDoesNotMatch();
 
+    error AdaptorQuestionAlreadyLocked();
+    error AdaptorMarketNotLocked();
+    error AdaptorAccessControlUnauthorizedAccount();
+    error AdaptorPrelockTimestampAlreadyPassed();
+    error AdaptorCannotBeLocked();
+    error AdaptorProposerOverridden();
+    error AdaptorCurveBlacklisted();
+    error AdaptorInvalidCurve();
+
     // TODO: cleanup
 }
