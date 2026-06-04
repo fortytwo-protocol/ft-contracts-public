@@ -8,6 +8,12 @@ import {Market, MarketState, MarketDeployParams} from "@ft/lib/Market.sol";
 import {Integrator} from "@ft/lib/Integrator.sol";
 import {FTMath} from "@ft/lib/FTMath.sol";
 
+interface IFTKink {
+    function timeKink() external view returns (uint256);
+    function TIME_KINK_START() external view returns (uint256);
+    function TIME_KINK() external view returns (uint256);
+}
+
 struct MarketSnapshot {
     OtSnapshot[] ots;
     MarketDeployParams deploy;
@@ -20,6 +26,7 @@ struct OtSnapshot {
     uint256 supply;
     uint256 totalMarketCap;
     uint256 payoutPerOt; /// @dev assuming this OT wins
+    uint256 marketCap; /// @dev rely on V2 market's marketCap(), else reverts to curve's simCost()
 }
 
 struct UserOtSnapshot {
@@ -30,6 +37,7 @@ struct UserOtSnapshot {
     uint256 otHolding;
     uint256 payoutUser; /// @dev accurate if finalised, else assuming this OT wins
     uint256 payoutPerOt; /// @dev accurate if finalised, else assuming this OT wins
+    uint256 marketCap; /// @dev rely on V2 market's marketCap(), else reverts to curve's simCost()
 }
 
 struct MintQuote {
@@ -80,6 +88,8 @@ contract FTLensV2 {
         IFTCurve curve;
         uint256 totalMarketCap;
         uint256[] supplies;
+        uint256[] marketCaps;
+        uint256[] indexTrades;
         bool[] seen;
         OtSnapshot[] pres;
         OtSnapshot[] posts;
@@ -92,6 +102,8 @@ contract FTLensV2 {
         IFTCurve curve;
         uint256 totalMarketCap;
         uint256[] supplies;
+        uint256[] marketCaps;
+        uint256[] indexTrades;
         bool[] seen;
         UserOtSnapshot[] pres;
         UserOtSnapshot[] posts;
@@ -106,6 +118,8 @@ contract FTLensV2 {
         IFTCurve curve;
         uint256 totalMarketCap;
         uint256[] supplies;
+        uint256[] marketCaps;
+        uint256[] indexTrades;
         bool[] seen;
         OtSnapshot[] pres;
         OtSnapshot[] posts;
@@ -118,6 +132,8 @@ contract FTLensV2 {
         IFTCurve curve;
         uint256 totalMarketCap;
         uint256[] supplies;
+        uint256[] marketCaps;
+        uint256[] indexTrades;
         bool[] seen;
         UserOtSnapshot[] pres;
         UserOtSnapshot[] posts;
@@ -129,6 +145,8 @@ contract FTLensV2 {
 
     error LensDuplicateTokenIdInBatch(uint256 tradeIndex, uint256 tokenId);
     error LensInvalidTokenId(uint256 tokenId);
+    error LensNoKinkFound(address curve);
+    error LensInvalidMarketDuration(uint128 timestampStart, uint128 timestampEnd);
 
     function snapshotMarket(address market) public view returns (MarketSnapshot memory snapshot) {
         snapshot.state = IFTMarketV2(market).readState();
@@ -150,6 +168,7 @@ contract FTLensV2 {
         ot.price = curve.calMarginalPrice(market, tokenId);
         ot.payoutPerOt = IFTMarketV2(market).simPayout(tokenId, 1 * 10 ** otDecimals);
         ot.totalMarketCap = IFTMarketV2(market).totalMarketCap();
+        ot.marketCap = _tryGetMarketCap(curve, market, tokenId, ot.supply);
     }
 
     function snapshotUserOt(address market, uint256 tokenId, address user)
@@ -199,7 +218,8 @@ contract FTLensV2 {
             market,
             tokenId,
             pre.supply + quote.otToUser,
-            pre.totalMarketCap + quote.collateralFromUser - quote.collateralToIntegrator - quote.collateralToTreasury
+            pre.totalMarketCap + quote.collateralFromUser - quote.collateralToIntegrator - quote.collateralToTreasury,
+            pre.marketCap + quote.collateralFromUser - quote.collateralToIntegrator - quote.collateralToTreasury
         );
     }
 
@@ -224,7 +244,8 @@ contract FTLensV2 {
             market,
             tokenId,
             pre.supply - quote.otFromUser,
-            pre.totalMarketCap - quote.collateralToUser - quote.collateralToIntegrator - quote.collateralToTreasury
+            pre.totalMarketCap - quote.collateralToUser - quote.collateralToIntegrator - quote.collateralToTreasury,
+            pre.marketCap - quote.collateralToUser - quote.collateralToIntegrator - quote.collateralToTreasury
         );
     }
 
@@ -249,7 +270,8 @@ contract FTLensV2 {
             tokenId,
             pre.supply + quote.otToUser,
             pre.totalMarketCap + quote.collateralFromUser - quote.collateralToIntegrator - quote.collateralToTreasury,
-            pre.otHolding + quote.otToUser
+            pre.otHolding + quote.otToUser,
+            pre.marketCap + quote.collateralFromUser - quote.collateralToIntegrator - quote.collateralToTreasury
         );
     }
 
@@ -276,7 +298,8 @@ contract FTLensV2 {
             tokenId,
             pre.supply - quote.otFromUser,
             pre.totalMarketCap - quote.collateralToUser - quote.collateralToIntegrator - quote.collateralToTreasury,
-            pre.otHolding - quote.otFromUser
+            pre.otHolding - quote.otFromUser,
+            pre.marketCap - quote.collateralToUser - quote.collateralToIntegrator - quote.collateralToTreasury
         );
     }
 
@@ -285,11 +308,15 @@ contract FTLensV2 {
         returns (OtSnapshot[] memory pres, OtSnapshot[] memory posts, MintQuote[] memory quotes)
     {
         integratorFeeBps = _resolveIntegratorFeeBps(market, integratorFeeBps);
-        BatchStateMintPointer memory s = _initBatchStateMint(market, trades.length);
+        BatchStateMintPointer memory s = _initBatchStateMint(market, trades);
+
+        s.pres = _composeBatchOt(s.curve, market, trades, s.supplies, s.totalMarketCap, s.marketCaps, s.indexTrades);
 
         for (uint256 i = 0; i < trades.length; ++i) {
-            _stepMint(market, integratorFeeBps, s, trades, i);
+            _stepMint(market, integratorFeeBps, s, trades, i); // note: stepMint modifies mint pointer in-place
         }
+
+        s.posts = _composeBatchOt(s.curve, market, trades, s.supplies, s.totalMarketCap, s.marketCaps, s.indexTrades);
 
         return (s.pres, s.posts, s.quotes);
     }
@@ -299,11 +326,15 @@ contract FTLensV2 {
         returns (OtSnapshot[] memory pres, OtSnapshot[] memory posts, RedeemQuote[] memory quotes)
     {
         integratorFeeBps = _resolveIntegratorFeeBps(market, integratorFeeBps);
-        BatchStateRedeemPointer memory s = _initBatchStateRedeem(market, trades.length);
+        BatchStateRedeemPointer memory s = _initBatchStateRedeem(market, trades);
+
+        s.pres = _composeBatchOt(s.curve, market, trades, s.supplies, s.totalMarketCap, s.marketCaps, s.indexTrades);
 
         for (uint256 i = 0; i < trades.length; ++i) {
-            _stepRedeem(market, integratorFeeBps, s, trades, i);
+            _stepRedeem(market, integratorFeeBps, s, trades, i); // note: stepRedeem modifies redeem pointer in-place
         }
+
+        s.posts = _composeBatchOt(s.curve, market, trades, s.supplies, s.totalMarketCap, s.marketCaps, s.indexTrades);
 
         return (s.pres, s.posts, s.quotes);
     }
@@ -313,11 +344,19 @@ contract FTLensV2 {
         returns (UserOtSnapshot[] memory pres, UserOtSnapshot[] memory posts, MintQuote[] memory quotes)
     {
         integratorFeeBps = _resolveIntegratorFeeBps(market, integratorFeeBps);
-        BatchStateMintUserPointer memory s = _initBatchStateMintUser(market, user, trades.length);
+        BatchStateMintUserPointer memory s = _initBatchStateMintUser(market, user, trades);
+
+        s.pres = _composeBatchUserOt(
+            s.curve, market, trades, s.supplies, s.totalMarketCap, s.marketCaps, s.indexTrades, s.holdings
+        );
 
         for (uint256 i = 0; i < trades.length; ++i) {
-            _stepMintUser(market, integratorFeeBps, s, trades, i);
+            _stepMintUser(market, integratorFeeBps, s, trades, i); // note: stepMintUser modifies mint pointer in-place
         }
+
+        s.posts = _composeBatchUserOt(
+            s.curve, market, trades, s.supplies, s.totalMarketCap, s.marketCaps, s.indexTrades, s.holdings
+        );
 
         return (s.pres, s.posts, s.quotes);
     }
@@ -329,13 +368,45 @@ contract FTLensV2 {
         uint256 integratorFeeBps
     ) external returns (UserOtSnapshot[] memory pres, UserOtSnapshot[] memory posts, RedeemQuote[] memory quotes) {
         integratorFeeBps = _resolveIntegratorFeeBps(market, integratorFeeBps);
-        BatchStateRedeemUserPointer memory s = _initBatchStateRedeemUser(market, user, trades.length);
+        BatchStateRedeemUserPointer memory s = _initBatchStateRedeemUser(market, user, trades);
+
+        s.pres = _composeBatchUserOt(
+            s.curve, market, trades, s.supplies, s.totalMarketCap, s.marketCaps, s.indexTrades, s.holdings
+        );
 
         for (uint256 i = 0; i < trades.length; ++i) {
-            _stepRedeemUser(market, integratorFeeBps, s, trades, i);
+            _stepRedeemUser(market, integratorFeeBps, s, trades, i); // note: stepRedeemUser modifies redeem pointer in-place
         }
 
+        s.posts = _composeBatchUserOt(
+            s.curve, market, trades, s.supplies, s.totalMarketCap, s.marketCaps, s.indexTrades, s.holdings
+        );
+
         return (s.pres, s.posts, s.quotes);
+    }
+
+    /**
+     * @notice read kink details, only useful for curves with a redeem tax formula that also involves a kink
+     * @dev the timeKink() standard is not part of IFTCurve interface
+     * because kink is not standardized in all curves. There may also be
+     * hidden cases of curves not supporting timeKink().
+     *
+     * By default, is to try other ways to get this data.
+     * If there are none, revert as the curve can possibly have no kink
+     *
+     * @return kinkPercentageInWAD kink as % of market duration and in WAD. For example, 1e18 is 100%, 9e17 is 90%, 5e16 is 5%.
+     * @return kinkTimestamp timestamp of kink, same units as block.timestamp. Unlike kinkPercentage, this is mutable as end timestamp can be modified.
+     */
+    function readKinkState(address market) external view returns (uint256 kinkPercentageInWAD, uint256 kinkTimestamp) {
+        MarketState memory state = IFTMarketV2(market).readState();
+        if (state.timestampEnd < state.timestampStart) {
+            revert LensInvalidMarketDuration(state.timestampStart, state.timestampEnd);
+        }
+
+        kinkPercentageInWAD = _getKinkPercentage(address(state.curve));
+
+        uint256 duration = state.timestampEnd - state.timestampStart;
+        kinkTimestamp = uint256(state.timestampStart) + duration.fullMulDiv(kinkPercentageInWAD, FTMath.FT_ONE);
     }
 
     function _stepMint(
@@ -345,20 +416,17 @@ contract FTLensV2 {
         TradeInput[] calldata trades,
         uint256 indexTrade
     ) internal {
-        uint256 indexOutcome = _fromTokenIdToOutcomeIndex(trades[indexTrade].tokenId, s.supplies.length);
+        uint256 indexOutcome = s.indexTrades[indexTrade];
         if (s.seen[indexOutcome]) revert LensDuplicateTokenIdInBatch(indexTrade, trades[indexTrade].tokenId);
         s.seen[indexOutcome] = true;
 
-        s.pres[indexTrade] =
-            _composeOt(s.curve, market, trades[indexTrade].tokenId, s.supplies[indexOutcome], s.totalMarketCap);
         s.quotes[indexTrade] = _quoteMintForGroup(s.curve, market, integratorFeeBps, trades[indexTrade]);
 
         s.supplies[indexOutcome] += s.quotes[indexTrade].otToUser;
         s.totalMarketCap += s.quotes[indexTrade].collateralFromUser - s.quotes[indexTrade].collateralToIntegrator
         - s.quotes[indexTrade].collateralToTreasury;
-
-        s.posts[indexTrade] =
-            _composeOt(s.curve, market, trades[indexTrade].tokenId, s.supplies[indexOutcome], s.totalMarketCap);
+        s.marketCaps[indexOutcome] += s.quotes[indexTrade].collateralFromUser
+        - s.quotes[indexTrade].collateralToIntegrator - s.quotes[indexTrade].collateralToTreasury;
     }
 
     function _stepRedeem(
@@ -368,21 +436,18 @@ contract FTLensV2 {
         TradeInput[] calldata trades,
         uint256 indexTrade
     ) internal {
-        uint256 indexOutcome = _fromTokenIdToOutcomeIndex(trades[indexTrade].tokenId, s.supplies.length);
+        uint256 indexOutcome = s.indexTrades[indexTrade];
         if (s.seen[indexOutcome]) revert LensDuplicateTokenIdInBatch(indexTrade, trades[indexTrade].tokenId);
         s.seen[indexOutcome] = true;
 
-        s.pres[indexTrade] =
-            _composeOt(s.curve, market, trades[indexTrade].tokenId, s.supplies[indexOutcome], s.totalMarketCap);
         s.quotes[indexTrade] =
             _quoteRedeemForGroup(s.curve, market, integratorFeeBps, trades[indexTrade], s.supplies[indexOutcome]);
 
         s.supplies[indexOutcome] -= s.quotes[indexTrade].otFromUser;
         s.totalMarketCap -= s.quotes[indexTrade].collateralToUser + s.quotes[indexTrade].collateralToIntegrator
         + s.quotes[indexTrade].collateralToTreasury;
-
-        s.posts[indexTrade] =
-            _composeOt(s.curve, market, trades[indexTrade].tokenId, s.supplies[indexOutcome], s.totalMarketCap);
+        s.marketCaps[indexOutcome] -= s.quotes[indexTrade].collateralToUser
+        + s.quotes[indexTrade].collateralToIntegrator + s.quotes[indexTrade].collateralToTreasury;
     }
 
     function _stepMintUser(
@@ -392,33 +457,18 @@ contract FTLensV2 {
         TradeInput[] calldata trades,
         uint256 indexTrade
     ) internal {
-        uint256 indexOutcome = _fromTokenIdToOutcomeIndex(trades[indexTrade].tokenId, s.supplies.length);
+        uint256 indexOutcome = s.indexTrades[indexTrade];
         if (s.seen[indexOutcome]) revert LensDuplicateTokenIdInBatch(indexTrade, trades[indexTrade].tokenId);
         s.seen[indexOutcome] = true;
 
-        s.pres[indexTrade] = _composeUserOt(
-            s.curve,
-            market,
-            trades[indexTrade].tokenId,
-            s.supplies[indexOutcome],
-            s.totalMarketCap,
-            s.holdings[indexOutcome]
-        );
         s.quotes[indexTrade] = _quoteMintForGroup(s.curve, market, integratorFeeBps, trades[indexTrade]);
 
         s.supplies[indexOutcome] += s.quotes[indexTrade].otToUser;
         s.holdings[indexOutcome] += s.quotes[indexTrade].otToUser;
         s.totalMarketCap += s.quotes[indexTrade].collateralFromUser - s.quotes[indexTrade].collateralToIntegrator
         - s.quotes[indexTrade].collateralToTreasury;
-
-        s.posts[indexTrade] = _composeUserOt(
-            s.curve,
-            market,
-            trades[indexTrade].tokenId,
-            s.supplies[indexOutcome],
-            s.totalMarketCap,
-            s.holdings[indexOutcome]
-        );
+        s.marketCaps[indexOutcome] += s.quotes[indexTrade].collateralFromUser
+        - s.quotes[indexTrade].collateralToIntegrator - s.quotes[indexTrade].collateralToTreasury;
     }
 
     function _stepRedeemUser(
@@ -428,18 +478,10 @@ contract FTLensV2 {
         TradeInput[] calldata trades,
         uint256 indexTrade
     ) internal {
-        uint256 indexOutcome = _fromTokenIdToOutcomeIndex(trades[indexTrade].tokenId, s.supplies.length);
+        uint256 indexOutcome = s.indexTrades[indexTrade];
         if (s.seen[indexOutcome]) revert LensDuplicateTokenIdInBatch(indexTrade, trades[indexTrade].tokenId);
         s.seen[indexOutcome] = true;
 
-        s.pres[indexTrade] = _composeUserOt(
-            s.curve,
-            market,
-            trades[indexTrade].tokenId,
-            s.supplies[indexOutcome],
-            s.totalMarketCap,
-            s.holdings[indexOutcome]
-        );
         s.quotes[indexTrade] =
             _quoteRedeemForGroup(s.curve, market, integratorFeeBps, trades[indexTrade], s.supplies[indexOutcome]);
 
@@ -447,15 +489,8 @@ contract FTLensV2 {
         s.holdings[indexOutcome] -= s.quotes[indexTrade].otFromUser;
         s.totalMarketCap -= s.quotes[indexTrade].collateralToUser + s.quotes[indexTrade].collateralToIntegrator
         + s.quotes[indexTrade].collateralToTreasury;
-
-        s.posts[indexTrade] = _composeUserOt(
-            s.curve,
-            market,
-            trades[indexTrade].tokenId,
-            s.supplies[indexOutcome],
-            s.totalMarketCap,
-            s.holdings[indexOutcome]
-        );
+        s.marketCaps[indexOutcome] -= s.quotes[indexTrade].collateralToUser
+        + s.quotes[indexTrade].collateralToIntegrator + s.quotes[indexTrade].collateralToTreasury;
     }
 
     function _quoteMintForGroup(IFTCurve curve, address market, uint256 integratorFeeBps, TradeInput calldata trade)
@@ -558,16 +593,20 @@ contract FTLensV2 {
         quote.collateralMintValue = mintWithFee - mintFee;
     }
 
-    function _composeOt(IFTCurve curve, address market, uint256 tokenId, uint256 supply, uint256 totalMarketCap)
-        internal
-        view
-        returns (OtSnapshot memory snap)
-    {
+    function _composeOt(
+        IFTCurve curve,
+        address market,
+        uint256 tokenId,
+        uint256 supply,
+        uint256 totalMarketCap,
+        uint256 marketCap
+    ) internal view returns (OtSnapshot memory snap) {
         snap.tokenId = tokenId;
         snap.supply = supply;
         snap.totalMarketCap = totalMarketCap;
         snap.price = _calMarginalPrice(curve, market, tokenId, supply);
         snap.payoutPerOt = _calPayoutPerOt(market, tokenId, totalMarketCap, supply);
+        snap.marketCap = marketCap;
     }
 
     function _composeUserOt(
@@ -576,7 +615,8 @@ contract FTLensV2 {
         uint256 tokenId,
         uint256 supply,
         uint256 totalMarketCap,
-        uint256 holding
+        uint256 holding,
+        uint256 marketCap
     ) internal view returns (UserOtSnapshot memory snap) {
         snap.tokenId = tokenId;
         snap.supply = supply;
@@ -585,6 +625,42 @@ contract FTLensV2 {
         snap.payoutPerOt = _calPayoutPerOt(market, tokenId, totalMarketCap, supply);
         snap.otHolding = holding;
         snap.payoutUser = _calPayoutUser(totalMarketCap, holding, supply);
+        snap.marketCap = marketCap;
+    }
+
+    function _composeBatchOt(
+        IFTCurve curve,
+        address market,
+        TradeInput[] calldata trades,
+        uint256[] memory supplies,
+        uint256 totalMarketCap,
+        uint256[] memory marketCaps,
+        uint256[] memory indexTrades
+    ) internal view returns (OtSnapshot[] memory out) {
+        out = new OtSnapshot[](trades.length);
+        for (uint256 i = 0; i < trades.length; ++i) {
+            uint256 idx = indexTrades[i];
+            out[i] = _composeOt(curve, market, trades[i].tokenId, supplies[idx], totalMarketCap, marketCaps[idx]);
+        }
+    }
+
+    function _composeBatchUserOt(
+        IFTCurve curve,
+        address market,
+        TradeInput[] calldata trades,
+        uint256[] memory supplies,
+        uint256 totalMarketCap,
+        uint256[] memory marketCaps,
+        uint256[] memory indexTrades,
+        uint256[] memory holdings
+    ) internal view returns (UserOtSnapshot[] memory out) {
+        out = new UserOtSnapshot[](trades.length);
+        for (uint256 i = 0; i < trades.length; ++i) {
+            uint256 idx = indexTrades[i];
+            out[i] = _composeUserOt(
+                curve, market, trades[i].tokenId, supplies[idx], totalMarketCap, holdings[idx], marketCaps[idx]
+            );
+        }
     }
 
     function _snapshotUserOt(address market, uint256 tokenId, address user, MarketState memory state)
@@ -598,6 +674,7 @@ contract FTLensV2 {
         snapshot.supply = ot.supply;
         snapshot.totalMarketCap = ot.totalMarketCap;
         snapshot.payoutPerOt = ot.payoutPerOt;
+        snapshot.marketCap = ot.marketCap;
         snapshot.otHolding = IFTMarketV2(market).balanceOf(user, tokenId);
 
         if (state.isFinalised) {
@@ -614,7 +691,7 @@ contract FTLensV2 {
         }
     }
 
-    function _initBatchStateMint(address market, uint256 numTrades)
+    function _initBatchStateMint(address market, TradeInput[] calldata trades)
         internal
         view
         returns (BatchStateMintPointer memory s)
@@ -623,16 +700,21 @@ contract FTLensV2 {
         s.curve = IFTCurve(IFTMarketV2(market).readMarketDeployParams().curve);
         s.totalMarketCap = IFTMarketV2(market).totalMarketCap();
         s.supplies = new uint256[](numOutcomes);
+        s.marketCaps = new uint256[](numOutcomes);
+        s.indexTrades = new uint256[](trades.length);
         s.seen = new bool[](numOutcomes);
-        s.pres = new OtSnapshot[](numTrades);
-        s.posts = new OtSnapshot[](numTrades);
-        s.quotes = new MintQuote[](numTrades);
+        s.quotes = new MintQuote[](trades.length);
         for (uint256 i = 0; i < numOutcomes; ++i) {
-            s.supplies[i] = IFTMarketV2(market).totalSupply(Market.toTokenId(i));
+            uint256 tokenId = Market.toTokenId(i);
+            s.supplies[i] = IFTMarketV2(market).totalSupply(tokenId);
+            s.marketCaps[i] = _tryGetMarketCap(s.curve, market, tokenId, s.supplies[i]);
+        }
+        for (uint256 i = 0; i < trades.length; ++i) {
+            s.indexTrades[i] = _fromTokenIdToOutcomeIndex(trades[i].tokenId, numOutcomes);
         }
     }
 
-    function _initBatchStateRedeem(address market, uint256 numTrades)
+    function _initBatchStateRedeem(address market, TradeInput[] calldata trades)
         internal
         view
         returns (BatchStateRedeemPointer memory s)
@@ -641,16 +723,21 @@ contract FTLensV2 {
         s.curve = IFTCurve(IFTMarketV2(market).readMarketDeployParams().curve);
         s.totalMarketCap = IFTMarketV2(market).totalMarketCap();
         s.supplies = new uint256[](numOutcomes);
+        s.marketCaps = new uint256[](numOutcomes);
+        s.indexTrades = new uint256[](trades.length);
         s.seen = new bool[](numOutcomes);
-        s.pres = new OtSnapshot[](numTrades);
-        s.posts = new OtSnapshot[](numTrades);
-        s.quotes = new RedeemQuote[](numTrades);
+        s.quotes = new RedeemQuote[](trades.length);
         for (uint256 i = 0; i < numOutcomes; ++i) {
-            s.supplies[i] = IFTMarketV2(market).totalSupply(Market.toTokenId(i));
+            uint256 tokenId = Market.toTokenId(i);
+            s.supplies[i] = IFTMarketV2(market).totalSupply(tokenId);
+            s.marketCaps[i] = _tryGetMarketCap(s.curve, market, tokenId, s.supplies[i]);
+        }
+        for (uint256 i = 0; i < trades.length; ++i) {
+            s.indexTrades[i] = _fromTokenIdToOutcomeIndex(trades[i].tokenId, numOutcomes);
         }
     }
 
-    function _initBatchStateMintUser(address market, address user, uint256 numTrades)
+    function _initBatchStateMintUser(address market, address user, TradeInput[] calldata trades)
         internal
         view
         returns (BatchStateMintUserPointer memory s)
@@ -659,19 +746,23 @@ contract FTLensV2 {
         s.curve = IFTCurve(IFTMarketV2(market).readMarketDeployParams().curve);
         s.totalMarketCap = IFTMarketV2(market).totalMarketCap();
         s.supplies = new uint256[](numOutcomes);
+        s.marketCaps = new uint256[](numOutcomes);
         s.holdings = new uint256[](numOutcomes);
+        s.indexTrades = new uint256[](trades.length);
         s.seen = new bool[](numOutcomes);
-        s.pres = new UserOtSnapshot[](numTrades);
-        s.posts = new UserOtSnapshot[](numTrades);
-        s.quotes = new MintQuote[](numTrades);
+        s.quotes = new MintQuote[](trades.length);
         for (uint256 i = 0; i < numOutcomes; ++i) {
             uint256 tokenId = Market.toTokenId(i);
             s.supplies[i] = IFTMarketV2(market).totalSupply(tokenId);
             s.holdings[i] = IFTMarketV2(market).balanceOf(user, tokenId);
+            s.marketCaps[i] = _tryGetMarketCap(s.curve, market, tokenId, s.supplies[i]);
+        }
+        for (uint256 i = 0; i < trades.length; ++i) {
+            s.indexTrades[i] = _fromTokenIdToOutcomeIndex(trades[i].tokenId, numOutcomes);
         }
     }
 
-    function _initBatchStateRedeemUser(address market, address user, uint256 numTrades)
+    function _initBatchStateRedeemUser(address market, address user, TradeInput[] calldata trades)
         internal
         view
         returns (BatchStateRedeemUserPointer memory s)
@@ -680,15 +771,19 @@ contract FTLensV2 {
         s.curve = IFTCurve(IFTMarketV2(market).readMarketDeployParams().curve);
         s.totalMarketCap = IFTMarketV2(market).totalMarketCap();
         s.supplies = new uint256[](numOutcomes);
+        s.marketCaps = new uint256[](numOutcomes);
         s.holdings = new uint256[](numOutcomes);
+        s.indexTrades = new uint256[](trades.length);
         s.seen = new bool[](numOutcomes);
-        s.pres = new UserOtSnapshot[](numTrades);
-        s.posts = new UserOtSnapshot[](numTrades);
-        s.quotes = new RedeemQuote[](numTrades);
+        s.quotes = new RedeemQuote[](trades.length);
         for (uint256 i = 0; i < numOutcomes; ++i) {
             uint256 tokenId = Market.toTokenId(i);
             s.supplies[i] = IFTMarketV2(market).totalSupply(tokenId);
             s.holdings[i] = IFTMarketV2(market).balanceOf(user, tokenId);
+            s.marketCaps[i] = _tryGetMarketCap(s.curve, market, tokenId, s.supplies[i]);
+        }
+        for (uint256 i = 0; i < trades.length; ++i) {
+            s.indexTrades[i] = _fromTokenIdToOutcomeIndex(trades[i].tokenId, numOutcomes);
         }
     }
 
@@ -745,5 +840,43 @@ contract FTLensV2 {
         } catch {
             return false;
         }
+    }
+
+    function _tryGetMarketCap(IFTCurve curve, address market, uint256 tokenId, uint256 supply)
+        internal
+        view
+        returns (uint256)
+    {
+        try IFTMarketV2(market).marketCap(tokenId) returns (uint256 marketCap) {
+            return marketCap;
+        } catch {
+            // note: backward compatibility with V1 - use area under curve
+            uint256 costRaw;
+            try curve.simCost(market, tokenId, supply) returns (uint256 c) {
+                costRaw = c;
+            } catch {
+                costRaw = curve.simCost(supply);
+            }
+            uint8 collateralDecimals = IFTMarketV2(market).collateralDecimals();
+            return costRaw.fullMulDiv(10 ** collateralDecimals, FTMath.FT_ONE);
+        }
+    }
+
+    function _getKinkPercentage(address curve) internal view returns (uint256) {
+        // 1. always rely on the agreed timeKink() for kinkable curves
+        try IFTKink(curve).timeKink() returns (uint256 k) {
+            return k;
+        } catch {}
+
+        // 2. try fetching raw
+        try IFTKink(curve).TIME_KINK_START() returns (uint256 k) {
+            return k;
+        } catch {}
+        try IFTKink(curve).TIME_KINK() returns (uint256 k) {
+            return k;
+        } catch {}
+
+        // 3. no kink available
+        revert LensNoKinkFound(curve);
     }
 }
